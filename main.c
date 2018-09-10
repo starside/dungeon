@@ -36,18 +36,8 @@
 #include "game.h"		/* local definitions */
 #include "messages.h"		/* Hard coded game messages */
 #include "entity.h"
+#include "debug.h"
 
-struct Player_ringbuffer {
-	int head;
-	int tail;
-	char buf[512];
-	struct semaphore lock;
-};
-
-struct Player_IOBuffer {
-	struct Player_ringbuffer output;
-	struct Player_ringbuffer input;
-};
 
 
 /*
@@ -55,8 +45,8 @@ struct Player_IOBuffer {
  */
 #define NUM_PLAYERS 2
 struct Player game_players[NUM_PLAYERS] = {
-					{"Josh", -1},
-					{"Natalie", -1}
+					{"Josh", -1 ,0},
+					{"Natalie", -1, 0}
 };
 
 /*
@@ -86,31 +76,47 @@ struct game_dev *game_devices;	/* allocated in game_init_module */
 
 int game_open(struct inode *inode, struct file *filp)
 {
+	GAME_TRACE();
 	int result = 0;
 	cur = 0;
-	filp->private_data = NULL;
+
 	if(down_interruptible(&playerstack_mutex)) // Lock player stack
 		return -ERESTARTSYS;
 	if(player_sp >= NUM_PLAYERS) {
 		result = -EINTR;
 		printk(KERN_WARNING "Too Many Players");
-	} else {
-		filp->private_data = (void *)&game_players[player_sp];
-		player_sp++;
-	}	
+		goto out;
+	}
 
+	// Setup I/O buffers for a pplayer
+	if(init_iobuffer(&(game_players[player_sp].io)) < 0) {
+		result = -EFAULT;
+		goto out;
+	}
+	filp->private_data = (void *)&game_players[player_sp];
+
+	// Display welcome message
+	char *message = welcome;
+	int message_len = sizeof(welcome);
+	write_buffer(&(game_players[player_sp].io->output), message, message_len);
+
+	// All is good, increment player count
+	player_sp++;
+
+out:
 	up(&playerstack_mutex);
 	return result;          /* success */
 }
 
 int game_release(struct inode *inode, struct file *filp)
 {
-	if(!filp->private_data) {
-		return 0;
-	}
+	GAME_TRACE();
 	if(down_interruptible(&playerstack_mutex)){ // Lock player stack
 		return -ERESTARTSYS;
 	} else {
+		struct Player *p = (struct Player *)(filp->private_data);
+		free_iobuffer(p->io);
+		p->io = NULL;
 		player_sp--;
 	}	
 
@@ -125,33 +131,23 @@ out:
 
 ssize_t game_read(struct file *filp, char __user *buf, size_t count,loff_t *f_pos)
 {
-	char *message = welcome;
-	int message_len = sizeof(welcome);
-	int result = 0;
-        printk(KERN_WARNING "Name: %s\n", ((struct Player *)filp->private_data)->name);	
-	if(cur >= message_len) {
-		result = 0;
-		goto out;
-	}
-		
-	int write_len = min(count, (size_t)(message_len-cur)); // Integer conversion error
-		
-	if( copy_to_user(buf, &(message[cur]), write_len) ) {
-		goto fail;
-	}
-        cur += write_len;
-	result = write_len;
-
-	out:
-	return result;
+	GAME_TRACE();
 	
-	fail:
-	return -EFAULT;
+	int result = 0;
+    printk(KERN_WARNING "Name: %s\n", ((struct Player *)filp->private_data)->name);	
+	
+	// Get player data structure
+	struct Player *player = (struct Player *)filp->private_data;
+	struct Player_IOBuffer *io = player->io;
+
+	// Read data from ringbuffer to user
+	return read_buffer_to_user(&(io->output), buf, count);
 }
 
 ssize_t game_write(struct file *filp, const char __user *buf, size_t count,
                 loff_t *f_pos)
 {
+	GAME_TRACE();
 	return 0;	
 }
 
@@ -174,6 +170,7 @@ struct file_operations game_fops = {
  */
 void game_cleanup_module(void)
 {
+	GAME_TRACE();
 	int i;
 	dev_t devno = MKDEV(game_major, 0);
 
@@ -196,6 +193,7 @@ void game_cleanup_module(void)
  */
 static void game_setup_cdev(struct game_dev *dev, int index)
 {
+	GAME_TRACE();
 	int err, devno = MKDEV(game_major, index);
     
 	cdev_init(&dev->cdev, &game_fops);
@@ -210,6 +208,7 @@ static void game_setup_cdev(struct game_dev *dev, int index)
 
 int game_init_module(void)
 {
+	GAME_TRACE();
 	int result, i;
 	dev_t dev = 0;
 

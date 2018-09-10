@@ -15,7 +15,7 @@ CFLAGS += -I$(LDDINC)
 ifneq ($(KERNELRELEASE),)
 # call from kernel build system
 
-game-objs := main.o
+game-objs := main.o io.o
 
 obj-m	:= game.o
 
