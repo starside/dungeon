@@ -8,26 +8,27 @@
 #include "debug.h"
 
 /* Create the Player's io buffers */
-int init_iobuffer(struct Player_IOBuffer **player_buf) {
-    GAME_TRACE();
-    *player_buf = kmalloc(sizeof(struct Player_IOBuffer), GFP_KERNEL);
-	if(!*player_buf) {
+int init_ringbuffer(struct Player_ringbuffer **buf) {
+	GAME_TRACE();
+	*buf = kmalloc(sizeof(struct Player_ringuffer), GFP_KERNEL);
+	if(!*buf) {
 		return -1;
 	}
-    memset(*player_buf, 0, sizeof(struct Player_IOBuffer));
-	MUTEX_INIT(&((*player_buf)->output.lock));
-	MUTEX_INIT(&((*player_buf)->input.lock));
-    return 0;
+	memset(*buf, 0, sizeof(struct Player_ringbuffer));
+	MUTEX_INIT( &((*buf)->lock) );
+	return 0;
 }
 
-int free_iobuffer(struct Player_IOBuffer *player_buf){
-    GAME_TRACE();
-    if( down_interruptible(&(player_buf->input.lock)) ||
-        down_interruptible(&(player_buf->output.lock)) ){ // Lock player stack
+int free_ringbuffer(struct Player_ringbuffer *buf){
+	GAME_TRACE();
+	if( down_interruptible(&(buf->lock)) )
 		return -1;
 	}
-    kfree(player_buf);
-    return 0;
+	struct semaphore temp;
+	memcpy(&temp, &(buf->lock), sizeof(struct semaphore) );
+	kfree(buf);
+	up(&temp);
+	return 0;
 }
 
 int write_buffer(struct Player_ringbuffer *buf, const char *message, size_t len) {
@@ -40,8 +41,7 @@ int write_buffer(struct Player_ringbuffer *buf, const char *message, size_t len)
     writelen = min(len, (size_t)CIRC_SPACE(buf->head, buf->tail, PLAYER_IO_BUF_LEN));
     printk(KERN_INFO "writelen: %d, head %d, tail %d\n", writelen, buf->head, buf->tail);
     memcpy((void *)&(buf->buf[buf->head]), (const void *)message, writelen);
-    buf->head += writelen;
-    buf->head = buf->head % PLAYER_IO_BUF_LEN;
+    buf->head = (writelen + buf->head) % PLAYER_IO_BUF_LEN;
     up(&(buf->lock));
     return writelen;
 }

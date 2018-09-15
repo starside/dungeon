@@ -110,19 +110,23 @@ out:
 
 int game_release(struct inode *inode, struct file *filp)
 {
+	int result = 0;
 	GAME_TRACE();
 	if(down_interruptible(&playerstack_mutex)){ // Lock player stack
 		return -ERESTARTSYS;
 	} else {
 		struct Player *p = (struct Player *)(filp->private_data);
-		free_iobuffer(p->io);
+		if(free_iobuffer(p->io) < 0) {
+			result = -ERESTARTSYS;
+			goto out;
+		}
 		p->io = NULL;
 		player_sp--;
 	}	
 
 out:
 	up(&playerstack_mutex);
-	return 0;
+	return result;
 }
 
 /*
@@ -144,8 +148,7 @@ ssize_t game_read(struct file *filp, char __user *buf, size_t count,loff_t *f_po
 	return read_buffer_to_user(&(io->output), buf, count);
 }
 
-ssize_t game_write(struct file *filp, const char __user *buf, size_t count,
-                loff_t *f_pos)
+ssize_t game_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
 {
 	GAME_TRACE();
 	return 0;	

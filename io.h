@@ -20,8 +20,8 @@ struct Player_IOBuffer {
 	struct Player_ringbuffer input;
 };
 
-int init_iobuffer(struct Player_IOBuffer **player_buf);
-int free_iobuffer(struct Player_IOBuffer *player_buf);
+int init_ringbuffer(struct Player_ringbuffer **player_buf);
+int free_ringbuffer(struct Player_ringbuffer *player_buf);
 
 int write_buffer(struct Player_ringbuffer *buf, const char *message, size_t len);
 int read_buffer_to_user(struct Player_ringbuffer *buf, char *dest, size_t len);
