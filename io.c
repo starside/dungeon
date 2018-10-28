@@ -7,10 +7,9 @@
 #include "io.h"
 #include "debug.h"
 
-/* Create the Player's io buffers */
 int init_ringbuffer(struct Player_ringbuffer **buf) {
 	GAME_TRACE();
-	*buf = kmalloc(sizeof(struct Player_ringuffer), GFP_KERNEL);
+	*buf = kmalloc(sizeof(**buf), GFP_KERNEL);
 	if(!*buf) {
 		return -1;
 	}
@@ -21,12 +20,12 @@ int init_ringbuffer(struct Player_ringbuffer **buf) {
 
 int free_ringbuffer(struct Player_ringbuffer *buf){
 	GAME_TRACE();
-	if( down_interruptible(&(buf->lock)) )
+	if( down_interruptible(&(buf->lock)) ) {
 		return -1;
 	}
 	struct semaphore temp;
-	memcpy(&temp, &(buf->lock), sizeof(struct semaphore) );
-	kfree(buf);
+	memcpy(&temp, &(buf->lock), sizeof(temp) );
+	kfree((void *)buf);
 	up(&temp);
 	return 0;
 }

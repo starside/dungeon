@@ -2,7 +2,6 @@
 #define __GAME_IO__
 
 #include <asm/semaphore.h>
-#include "entity.h"
 
 #define MUTEX_INIT(sem) sema_init(sem, 1)
 
@@ -13,11 +12,6 @@ struct Player_ringbuffer {
 	int tail;
 	char buf[PLAYER_IO_BUF_LEN]; // must be power of 2
 	struct semaphore lock;
-};
-
-struct Player_IOBuffer {
-	struct Player_ringbuffer output;
-	struct Player_ringbuffer input;
 };
 
 int init_ringbuffer(struct Player_ringbuffer **player_buf);

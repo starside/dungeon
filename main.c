@@ -44,10 +44,10 @@
  * Players in the game
  */
 #define NUM_PLAYERS 2
-struct Player game_players[NUM_PLAYERS] = {
-					{"Josh", -1 ,0},
-					{"Natalie", -1, 0}
-};
+struct Player game_players[NUM_PLAYERS];
+
+char player_names[NUM_PLAYERS][NAME_LEN] = {"Josh", "Natalie"};
+int player_start[NUM_PLAYERS] = {0, 0};
 
 /*
  * Players are assigned based on a stack
@@ -79,18 +79,19 @@ int game_open(struct inode *inode, struct file *filp)
 	GAME_TRACE();
 	int result = 0;
 	cur = 0;
-
 	if(down_interruptible(&playerstack_mutex)) // Lock player stack
 		return -ERESTARTSYS;
 	if(player_sp >= NUM_PLAYERS) {
-		result = -EINTR;
+		result = -EFAULT;
 		printk(KERN_WARNING "Too Many Players");
 		goto out;
 	}
 
-	// Setup I/O buffers for a pplayer
-	if(init_iobuffer(&(game_players[player_sp].io)) < 0) {
-		result = -EFAULT;
+	// Setup I/O buffers for a player
+	struct Player *player = &(game_players[player_sp]);
+	if(init_player(player, player_names[player_sp], player_start[player_sp])) {
+		result = -ERESTARTSYS;
+		DEBUG_WARN("Warning:  Failed on init player");
 		goto out;
 	}
 	filp->private_data = (void *)&game_players[player_sp];
@@ -98,7 +99,11 @@ int game_open(struct inode *inode, struct file *filp)
 	// Display welcome message
 	char *message = welcome;
 	int message_len = sizeof(welcome);
-	write_buffer(&(game_players[player_sp].io->output), message, message_len);
+	DEBUG_WARN("Writing opening message");
+	while(write_buffer(game_players[player_sp].output, message, message_len) < 0)
+	{
+		DEBUG_WARN("Re-trying write_buffer");
+	}
 
 	// All is good, increment player count
 	player_sp++;
@@ -113,16 +118,15 @@ int game_release(struct inode *inode, struct file *filp)
 	int result = 0;
 	GAME_TRACE();
 	if(down_interruptible(&playerstack_mutex)){ // Lock player stack
-		return -ERESTARTSYS;
-	} else {
-		struct Player *p = (struct Player *)(filp->private_data);
-		if(free_iobuffer(p->io) < 0) {
-			result = -ERESTARTSYS;
-			goto out;
-		}
-		p->io = NULL;
-		player_sp--;
-	}	
+		result = -ERESTARTSYS;
+		goto out;
+	}
+	struct Player *p = (struct Player *)(filp->private_data);
+	if(deinit_player(p)) {
+		result = -ERESTARTSYS;
+		goto out;
+	}
+	player_sp--;	
 
 out:
 	up(&playerstack_mutex);
@@ -137,15 +141,13 @@ ssize_t game_read(struct file *filp, char __user *buf, size_t count,loff_t *f_po
 {
 	GAME_TRACE();
 	
-	int result = 0;
-    printk(KERN_WARNING "Name: %s\n", ((struct Player *)filp->private_data)->name);	
+	printk(KERN_WARNING "Name: %s\n", ((struct Player *)filp->private_data)->name);	
 	
 	// Get player data structure
 	struct Player *player = (struct Player *)filp->private_data;
-	struct Player_IOBuffer *io = player->io;
 
 	// Read data from ringbuffer to user
-	return read_buffer_to_user(&(io->output), buf, count);
+	return read_buffer_to_user(player->output, buf, count);
 }
 
 ssize_t game_write(struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
@@ -215,6 +217,11 @@ int game_init_module(void)
 	int result, i;
 	dev_t dev = 0;
 
+	// Initialize player mutexes
+	memset((void *)game_players, 0, NUM_PLAYERS*sizeof(game_players[0]));
+	for(i = 0; i < NUM_PLAYERS; i++) {
+		sema_init(&(game_players[i].lock), 1);
+	}	
 /*
  * Get a range of minor numbers to work with, asking for a dynamic
  * major unless directed otherwise at load time.

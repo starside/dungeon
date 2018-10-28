@@ -8,7 +8,14 @@
 struct Player {
 	char name[NAME_LEN];
 	int location;  //Room player is in
-	struct Player_IOBuffer *io;
+	struct Player_ringbuffer *input;
+	struct Player_ringbuffer *output;
+	struct semaphore lock;
 };
 
+int init_player(struct Player *player, const char *name, int location);
+int deinit_player(struct Player *player);
+
+int lock_player(struct Player *player);
+void unlock_player(struct Player *player);
 #endif
